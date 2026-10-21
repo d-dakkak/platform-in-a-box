@@ -78,7 +78,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Trivy - misconfiguration and secrets in the repo
-        uses: aquasecurity/trivy-action@NEUE_VERSION
+        uses: aquasecurity/trivy-action@v0.36.0
         with:
           scan-type: fs
           scanners: misconfig,secret
@@ -147,7 +147,7 @@ jobs:
           cache-from: type=gha,scope=${{ matrix.service }}
           cache-to: type=gha,mode=max,scope=${{ matrix.service }}
       - name: Trivy - scan the image before it is pushed
-        uses: aquasecurity/trivy-action@NEUE_VERSION
+        uses: aquasecurity/trivy-action@v0.36.0
         with:
           image-ref: local/${{ matrix.service }}:scan
           severity: CRITICAL,HIGH
