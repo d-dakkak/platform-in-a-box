@@ -1,9 +1,9 @@
-# Replace @YOUR_USER with teams once more than one person works on this, e.g. @org/ops.
+# Replace @d-dakkak with teams once more than one person works on this, e.g. @org/ops.
 # The split mirrors the "Dev / Security / Ops" collaboration described in the job profile.
-*                          @YOUR_USER
-/apps/                     @YOUR_USER   # dev
-/charts/                   @YOUR_USER   # dev + ops
-/infra/                    @YOUR_USER   # ops
-/ansible/                  @YOUR_USER   # ops
-/gitops/platform/manifests/ @YOUR_USER  # security (policies) + ops
-/.github/workflows/        @YOUR_USER   # security + ops
+*                          @d-dakkak
+/apps/                     @d-dakkak   # dev
+/charts/                   @d-dakkak   # dev + ops
+/infra/                    @d-dakkak   # ops
+/ansible/                  @d-dakkak   # ops
+/gitops/platform/manifests/ @d-dakkak  # security (policies) + ops
+/.github/workflows/        @d-dakkak   # security + ops
