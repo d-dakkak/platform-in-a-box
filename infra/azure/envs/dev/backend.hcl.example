@@ -1,0 +1,5 @@
+resource_group_name  = "rg-pib-tfstate"
+storage_account_name = "pibtfstateXXXXX"
+container_name       = "tfstate"
+key                  = "dev.tfstate"
+use_azuread_auth     = true

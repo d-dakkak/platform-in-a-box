@@ -1,0 +1,78 @@
+name: terraform-azure
+
+on:
+  pull_request:
+    paths: ["infra/azure/**"]
+  push:
+    branches: [main]
+    paths: ["infra/azure/**"]
+
+permissions:
+  id-token: write
+  contents: read
+  pull-requests: write
+
+env:
+  ARM_USE_OIDC: "true"
+  ARM_USE_AZUREAD: "true"
+  ARM_CLIENT_ID: ${{ vars.AZURE_CLIENT_ID }}
+  ARM_TENANT_ID: ${{ vars.AZURE_TENANT_ID }}
+  ARM_SUBSCRIPTION_ID: ${{ vars.AZURE_SUBSCRIPTION_ID }}
+  TF_VAR_subscription_id: ${{ vars.AZURE_SUBSCRIPTION_ID }}
+  TF_IN_AUTOMATION: "true"
+  WORKDIR: infra/azure/envs/dev
+
+jobs:
+  plan:
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_wrapper: false
+      - name: init
+        working-directory: ${{ env.WORKDIR }}
+        run: |
+          terraform init -input=false \
+            -backend-config="resource_group_name=${{ vars.TFSTATE_RG }}" \
+            -backend-config="storage_account_name=${{ vars.TFSTATE_SA }}" \
+            -backend-config="container_name=tfstate" \
+            -backend-config="key=dev.tfstate" \
+            -backend-config="use_azuread_auth=true"
+      - name: plan
+        working-directory: ${{ env.WORKDIR }}
+        run: terraform plan -input=false -no-color -out=tfplan 2>&1 | tee plan.txt
+      - name: Comment plan on the pull request
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            let plan = fs.readFileSync(`${process.env.WORKDIR}/plan.txt`, 'utf8');
+            if (plan.length > 60000) plan = plan.slice(-60000);
+            const body = '### Terraform plan (Azure dev)\n```\n' + plan + '\n```';
+            await github.rest.issues.createComment({
+              owner: context.repo.owner, repo: context.repo.repo,
+              issue_number: context.issue.number, body,
+            });
+
+  apply:
+    if: github.event_name == 'push'
+    runs-on: ubuntu-latest
+    environment: dev            # configure required reviewers on this environment = manual approval
+    concurrency: terraform-azure-dev
+    steps:
+      - uses: actions/checkout@v4
+      - uses: hashicorp/setup-terraform@v3
+      - name: init
+        working-directory: ${{ env.WORKDIR }}
+        run: |
+          terraform init -input=false \
+            -backend-config="resource_group_name=${{ vars.TFSTATE_RG }}" \
+            -backend-config="storage_account_name=${{ vars.TFSTATE_SA }}" \
+            -backend-config="container_name=tfstate" \
+            -backend-config="key=dev.tfstate" \
+            -backend-config="use_azuread_auth=true"
+      - name: apply
+        working-directory: ${{ env.WORKDIR }}
+        run: terraform apply -input=false -auto-approve

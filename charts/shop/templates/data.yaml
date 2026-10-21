@@ -1,0 +1,164 @@
+{{- if .Values.postgres.enabled }}
+apiVersion: v1
+kind: Service
+metadata:
+  name: postgres
+  labels:
+    app.kubernetes.io/name: postgres
+    {{- include "shop.labels" . | nindent 4 }}
+spec:
+  selector: {app.kubernetes.io/name: postgres, app.kubernetes.io/part-of: shop}
+  ports:
+    - {name: postgres, port: 5432, targetPort: postgres}
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: postgres
+  labels:
+    app.kubernetes.io/name: postgres
+    {{- include "shop.labels" . | nindent 4 }}
+spec:
+  serviceName: postgres
+  replicas: 1
+  selector:
+    matchLabels: {app.kubernetes.io/name: postgres, app.kubernetes.io/part-of: shop}
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: postgres
+        {{- include "shop.labels" . | nindent 8 }}
+    spec:
+      automountServiceAccountToken: false
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 999
+        runAsGroup: 999
+        fsGroup: 999
+        seccompProfile: {type: RuntimeDefault}
+      containers:
+        - name: postgres
+          image: {{ .Values.postgres.image }}
+          ports:
+            - {name: postgres, containerPort: 5432}
+          env:
+            - {name: POSTGRES_USER, value: shop}
+            - {name: POSTGRES_DB, value: shop}
+            - {name: PGDATA, value: /var/lib/postgresql/data/pgdata}
+            - name: POSTGRES_PASSWORD
+              valueFrom:
+                secretKeyRef: {name: shop-secrets, key: POSTGRES_PASSWORD}
+          readinessProbe:
+            exec: {command: [pg_isready, -U, shop, -d, shop]}
+            periodSeconds: 5
+          livenessProbe:
+            tcpSocket: {port: postgres}
+            initialDelaySeconds: 20
+            periodSeconds: 10
+          resources:
+            {{- toYaml .Values.postgres.resources | nindent 12 }}
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities: {drop: [ALL]}
+          volumeMounts:
+            - {name: data, mountPath: /var/lib/postgresql/data}
+  volumeClaimTemplates:
+    - metadata: {name: data}
+      spec:
+        accessModes: [ReadWriteOnce]
+        {{- with .Values.postgres.storageClassName }}
+        storageClassName: {{ . }}
+        {{- end }}
+        resources: {requests: {storage: {{ .Values.postgres.storage }}}}
+{{- end }}
+{{- if .Values.rabbitmq.enabled }}
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: rabbitmq-plugins
+  labels:
+    {{- include "shop.labels" . | nindent 4 }}
+data:
+  enabled_plugins: "[rabbitmq_management,rabbitmq_prometheus].\n"
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: rabbitmq
+  labels:
+    app.kubernetes.io/name: rabbitmq
+    {{- include "shop.labels" . | nindent 4 }}
+spec:
+  selector: {app.kubernetes.io/name: rabbitmq, app.kubernetes.io/part-of: shop}
+  ports:
+    - {name: amqp, port: 5672, targetPort: amqp}
+    - {name: management, port: 15672, targetPort: management}
+    - {name: metrics, port: 15692, targetPort: metrics}
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: rabbitmq
+  labels:
+    app.kubernetes.io/name: rabbitmq
+    {{- include "shop.labels" . | nindent 4 }}
+spec:
+  serviceName: rabbitmq
+  replicas: 1
+  selector:
+    matchLabels: {app.kubernetes.io/name: rabbitmq, app.kubernetes.io/part-of: shop}
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: rabbitmq
+        {{- include "shop.labels" . | nindent 8 }}
+    spec:
+      automountServiceAccountToken: false
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 999
+        runAsGroup: 999
+        fsGroup: 999
+        seccompProfile: {type: RuntimeDefault}
+      containers:
+        - name: rabbitmq
+          image: {{ .Values.rabbitmq.image }}
+          ports:
+            - {name: amqp, containerPort: 5672}
+            - {name: management, containerPort: 15672}
+            - {name: metrics, containerPort: 15692}
+          env:
+            - {name: RABBITMQ_DEFAULT_USER, value: shop}
+            - name: RABBITMQ_DEFAULT_PASS
+              valueFrom:
+                secretKeyRef: {name: shop-secrets, key: RABBITMQ_PASSWORD}
+          readinessProbe:
+            exec: {command: [rabbitmq-diagnostics, -q, ping]}
+            initialDelaySeconds: 15
+            periodSeconds: 10
+          livenessProbe:
+            exec: {command: [rabbitmq-diagnostics, -q, ping]}
+            initialDelaySeconds: 60
+            periodSeconds: 30
+            timeoutSeconds: 10
+          resources:
+            {{- toYaml .Values.rabbitmq.resources | nindent 12 }}
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities: {drop: [ALL]}
+          volumeMounts:
+            - {name: data, mountPath: /var/lib/rabbitmq}
+            - {name: plugins, mountPath: /etc/rabbitmq/enabled_plugins, subPath: enabled_plugins}
+      volumes:
+        - name: plugins
+          configMap: {name: rabbitmq-plugins}
+  volumeClaimTemplates:
+    - metadata: {name: data}
+      spec:
+        accessModes: [ReadWriteOnce]
+        {{- with .Values.rabbitmq.storageClassName }}
+        storageClassName: {{ . }}
+        {{- end }}
+        resources: {requests: {storage: {{ .Values.rabbitmq.storage }}}}
+{{- end }}

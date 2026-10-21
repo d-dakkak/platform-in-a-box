@@ -1,0 +1,16 @@
+# Used by Argo CD on AKS. Placeholders are filled by scripts/configure-gitops.sh.
+image:
+  registry: __ACR_LOGIN_SERVER__
+  tag: "pending-first-build"
+ingress:
+  enabled: true
+  host: __SHOP_HOST__
+  tls:
+    enabled: true
+    clusterIssuer: letsencrypt-staging
+externalSecrets:
+  enabled: true
+secrets:
+  create: false
+monitoring:
+  runbookBaseUrl: __REPO_URL__/blob/main/docs/runbooks

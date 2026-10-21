@@ -1,0 +1,84 @@
+# Guardrails for the shop namespace. Set validationFailureAction to Audit first if you adopt this elsewhere.
+apiVersion: kyverno.io/v1
+kind: ClusterPolicy
+metadata:
+  name: disallow-latest-tag
+  annotations:
+    argocd.argoproj.io/sync-options: SkipDryRunOnMissingResource=true
+spec:
+  validationFailureAction: Enforce
+  background: true
+  rules:
+    - name: require-explicit-tag
+      match:
+        any:
+          - resources: {kinds: [Pod], namespaces: [shop]}
+      validate:
+        message: "Images must have an explicit tag and must not use ':latest'."
+        pattern:
+          spec:
+            containers:
+              - image: "*:*"
+    - name: forbid-latest
+      match:
+        any:
+          - resources: {kinds: [Pod], namespaces: [shop]}
+      validate:
+        message: "The ':latest' tag is not allowed."
+        pattern:
+          spec:
+            containers:
+              - image: "!*:latest"
+---
+apiVersion: kyverno.io/v1
+kind: ClusterPolicy
+metadata:
+  name: require-resource-limits
+  annotations:
+    argocd.argoproj.io/sync-options: SkipDryRunOnMissingResource=true
+spec:
+  validationFailureAction: Enforce
+  background: true
+  rules:
+    - name: cpu-and-memory-limits
+      match:
+        any:
+          - resources: {kinds: [Pod], namespaces: [shop]}
+      validate:
+        message: "CPU and memory limits are required."
+        pattern:
+          spec:
+            containers:
+              - resources:
+                  limits:
+                    cpu: "?*"
+                    memory: "?*"
+---
+apiVersion: kyverno.io/v1
+kind: ClusterPolicy
+metadata:
+  name: restrict-image-registries
+  annotations:
+    argocd.argoproj.io/sync-options: SkipDryRunOnMissingResource=true
+spec:
+  validationFailureAction: Enforce
+  background: true
+  rules:
+    - name: approved-registries-only
+      match:
+        any:
+          - resources: {kinds: [Pod], namespaces: [shop]}
+      exclude:
+        any:
+          # cert-manager starts short-lived solver pods (quay.io image) in this namespace for HTTP-01 challenges.
+          - resources:
+              kinds: [Pod]
+              selector:
+                matchLabels:
+                  acme.cert-manager.io/http01-solver: "true"
+      validate:
+        message: "Images must come from our ACR/ECR or be the pinned postgres/rabbitmq images."
+        pattern:
+          spec:
+            containers:
+              - image: "*.azurecr.io/* | *.amazonaws.com/* | postgres:* | rabbitmq:*"

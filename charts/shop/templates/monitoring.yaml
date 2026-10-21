@@ -1,0 +1,102 @@
+{{- if .Values.monitoring.enabled }}
+apiVersion: monitoring.coreos.com/v1
+kind: PodMonitor
+metadata:
+  name: shop-apps
+  labels:
+    {{- include "shop.labels" . | nindent 4 }}
+spec:
+  selector:
+    matchLabels: {app.kubernetes.io/part-of: shop}
+  namespaceSelector:
+    matchNames: [{{ .Release.Namespace }}]
+  podTargetLabels: ["app.kubernetes.io/name"]
+  podMetricsEndpoints:
+    - {port: http, path: /metrics, interval: 30s}
+---
+apiVersion: monitoring.coreos.com/v1
+kind: PodMonitor
+metadata:
+  name: shop-rabbitmq
+  labels:
+    {{- include "shop.labels" . | nindent 4 }}
+spec:
+  selector:
+    matchLabels: {app.kubernetes.io/name: rabbitmq}
+  namespaceSelector:
+    matchNames: [{{ .Release.Namespace }}]
+  podMetricsEndpoints:
+    - {port: metrics, path: /metrics, interval: 30s}
+---
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: shop-alerts
+  labels:
+    {{- include "shop.labels" . | nindent 4 }}
+spec:
+  groups:
+    - name: shop.rules
+      rules:
+        - alert: ShopApiHighErrorRate
+          expr: |
+            sum(rate(http_requests_total{namespace="{{ .Release.Namespace }}",app_kubernetes_io_name="orders-api",status=~"5.."}[5m]))
+            / sum(rate(http_requests_total{namespace="{{ .Release.Namespace }}",app_kubernetes_io_name="orders-api"}[5m])) > 0.05
+          for: 5m
+          labels: {severity: critical}
+          annotations:
+            summary: orders-api returns more than 5% HTTP 5xx for 5 minutes
+            runbook_url: {{ .Values.monitoring.runbookBaseUrl }}/high-error-rate.md
+        - alert: ShopApiHighLatency
+          expr: |
+            histogram_quantile(0.95, sum by (le) (rate(http_request_duration_seconds_bucket{namespace="{{ .Release.Namespace }}",app_kubernetes_io_name="orders-api"}[5m]))) > 0.5
+          for: 10m
+          labels: {severity: warning}
+          annotations:
+            summary: orders-api p95 latency above 500 ms for 10 minutes
+            runbook_url: {{ .Values.monitoring.runbookBaseUrl }}/high-error-rate.md
+        - alert: ShopPodCrashLooping
+          expr: increase(kube_pod_container_status_restarts_total{namespace="{{ .Release.Namespace }}"}[15m]) > 3
+          for: 5m
+          labels: {severity: critical}
+          annotations:
+            summary: A container in the shop namespace restarted more than 3 times in 15 minutes
+            runbook_url: {{ .Values.monitoring.runbookBaseUrl }}/pod-crashloop.md
+        - alert: ShopDeploymentUnavailable
+          expr: kube_deployment_status_replicas_available{namespace="{{ .Release.Namespace }}"} == 0
+          for: 5m
+          labels: {severity: critical}
+          annotations:
+            summary: A shop deployment has no available replicas
+            runbook_url: {{ .Values.monitoring.runbookBaseUrl }}/pod-crashloop.md
+        - alert: ShopQueueBacklog
+          expr: rabbitmq_queue_messages_ready{namespace="{{ .Release.Namespace }}"} > 100
+          for: 10m
+          labels: {severity: warning}
+          annotations:
+            summary: More than 100 messages waiting in RabbitMQ for 10 minutes
+            runbook_url: {{ .Values.monitoring.runbookBaseUrl }}/queue-backlog.md
+        - alert: ShopOrderEventsNotPublished
+          expr: increase(orders_publish_failures_total{namespace="{{ .Release.Namespace }}"}[10m]) > 0
+          labels: {severity: warning}
+          annotations:
+            summary: orders-api could not publish order.created events (orders stay pending, the relay retries)
+            runbook_url: {{ .Values.monitoring.runbookBaseUrl }}/queue-backlog.md
+        - alert: ShopPoisonMessages
+          expr: increase(poison_messages_total{namespace="{{ .Release.Namespace }}"}[15m]) > 0
+          labels: {severity: warning}
+          annotations:
+            summary: A consumer moved an unprocessable message to a dead-letter queue
+            runbook_url: {{ .Values.monitoring.runbookBaseUrl }}/queue-backlog.md
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: shop-dashboard
+  labels:
+    grafana_dashboard: "1"
+    {{- include "shop.labels" . | nindent 4 }}
+data:
+  shop.json: |-
+{{ .Files.Get "dashboards/shop.json" | indent 4 }}
+{{- end }}

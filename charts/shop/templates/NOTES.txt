@@ -1,0 +1,6 @@
+shop {{ .Chart.AppVersion }} deployed to namespace {{ .Release.Namespace }}.
+
+  kubectl -n {{ .Release.Namespace }} port-forward svc/orders-api 8080:8080
+  curl -s localhost:8080/docs                      # OpenAPI UI
+  curl -s -X POST localhost:8080/orders -H 'content-type: application/json' \
+       -d '{"item_id":"sku-1001","quantity":1,"customer_email":"ada@example.com"}'

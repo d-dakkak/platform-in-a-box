@@ -1,0 +1,31 @@
+{{- $api := index .Values.services "orders-api" }}
+{{- if and $api.autoscaling $api.autoscaling.enabled }}
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: orders-api
+  labels:
+    {{- include "shop.labels" . | nindent 4 }}
+spec:
+  scaleTargetRef: {apiVersion: apps/v1, kind: Deployment, name: orders-api}
+  minReplicas: {{ $api.autoscaling.minReplicas }}
+  maxReplicas: {{ $api.autoscaling.maxReplicas }}
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target: {type: Utilization, averageUtilization: {{ $api.autoscaling.cpuUtilization }}}
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: orders-api
+  labels:
+    {{- include "shop.labels" . | nindent 4 }}
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: orders-api
+      app.kubernetes.io/part-of: shop
+{{- end }}

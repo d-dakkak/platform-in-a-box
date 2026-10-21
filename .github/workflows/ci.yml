@@ -1,0 +1,186 @@
+name: ci
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+    paths-ignore:
+      - "docs/**"
+      - "**.md"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    name: test (${{ matrix.service }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        service: [orders-api, inventory-worker, notifier]
+    defaults:
+      run:
+        working-directory: apps/${{ matrix.service }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: apps/${{ matrix.service }}/requirements*.txt
+      - run: pip install -r requirements-dev.txt
+      - run: ruff check .
+      - run: pytest -q
+
+  tools:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: python -m unittest discover -s tools/pctl/tests -q
+
+  helm:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: azure/setup-helm@v4
+      - name: Lint and render every values variant
+        run: |
+          helm lint charts/shop -f charts/shop/values-azure.yaml
+          helm template shop charts/shop -f charts/shop/values-azure.yaml > /dev/null
+          helm template shop charts/shop -f charts/shop/values-local.yaml > /dev/null
+
+  terraform:
+    name: terraform (${{ matrix.dir }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        dir: [infra/azure/envs/dev, infra/aws/envs/dev]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: hashicorp/setup-terraform@v3
+      - run: terraform fmt -check -recursive infra
+      - run: terraform init -backend=false -input=false
+        working-directory: ${{ matrix.dir }}
+      - run: terraform validate
+        working-directory: ${{ matrix.dir }}
+
+  security:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Trivy - misconfiguration and secrets in the repo
+        uses: aquasecurity/trivy-action@0.28.0
+        with:
+          scan-type: fs
+          scanners: misconfig,secret
+          severity: CRITICAL,HIGH
+          exit-code: "1"
+      - name: Checkov - Terraform
+        uses: bridgecrewio/checkov-action@v12
+        with:
+          directory: infra
+          framework: terraform
+          soft_fail: true          # report first; switch to false once findings are triaged
+
+  e2e:
+    name: end-to-end (docker compose)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: docker compose up -d --build
+      - run: ./scripts/smoke-test.sh
+      - name: Logs on failure
+        if: failure()
+        run: docker compose logs --no-color --tail=200
+      - name: Tear down
+        if: always()
+        run: docker compose down -v
+
+  ansible:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: ansible
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install ansible-core ansible-lint
+      - run: ansible-galaxy collection install -r requirements.yml
+      - name: Syntax check
+        run: ansible-playbook -i localhost, --syntax-check playbooks/bastion.yml
+      - name: Lint
+        run: ansible-lint playbooks/bastion.yml
+        continue-on-error: true   # report first; make blocking once findings are triaged
+
+  build:
+    name: build (${{ matrix.service }})
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    needs: [test, tools, helm, terraform, security, e2e, ansible]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write            # OIDC to Azure, no stored credentials
+    strategy:
+      fail-fast: false
+      matrix:
+        service: [orders-api, inventory-worker, notifier]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-buildx-action@v3
+      - name: Build image (local only)
+        uses: docker/build-push-action@v6
+        with:
+          context: apps/${{ matrix.service }}
+          load: true
+          tags: local/${{ matrix.service }}:scan
+          cache-from: type=gha,scope=${{ matrix.service }}
+          cache-to: type=gha,mode=max,scope=${{ matrix.service }}
+      - name: Trivy - scan the image before it is pushed
+        uses: aquasecurity/trivy-action@0.28.0
+        with:
+          image-ref: local/${{ matrix.service }}:scan
+          severity: CRITICAL,HIGH
+          ignore-unfixed: true
+          exit-code: "1"
+      - uses: azure/login@v2
+        with:
+          client-id: ${{ vars.AZURE_CLIENT_ID }}
+          tenant-id: ${{ vars.AZURE_TENANT_ID }}
+          subscription-id: ${{ vars.AZURE_SUBSCRIPTION_ID }}
+      - name: Log in to ACR
+        run: az acr login --name "${{ vars.ACR_NAME }}"
+      - name: Push (tag = full commit SHA)
+        uses: docker/build-push-action@v6
+        with:
+          context: apps/${{ matrix.service }}
+          push: true
+          tags: ${{ vars.ACR_NAME }}.azurecr.io/shop/${{ matrix.service }}:${{ github.sha }}
+          cache-from: type=gha,scope=${{ matrix.service }}
+
+  deploy:
+    # GitOps: CI only records the new tag in Git; Argo CD does the rollout.
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - name: Bump image tag in values-azure.yaml
+        run: |
+          sed -i -E 's|^(  tag: ).*$|\1"${{ github.sha }}"|' charts/shop/values-azure.yaml
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add charts/shop/values-azure.yaml
+          git commit -m "chore(gitops): deploy ${GITHUB_SHA::7} [skip ci]" || echo "nothing to commit"
+          git push

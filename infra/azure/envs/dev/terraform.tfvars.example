@@ -1,0 +1,7 @@
+subscription_id = "00000000-0000-0000-0000-000000000000"
+location        = "germanywestcentral"
+
+# Optional jump host (then run ansible/playbooks/bastion.yml against it)
+# enable_bastion   = true
+# allowed_ssh_cidr = "203.0.113.7/32"
+# ssh_public_key   = "ssh-ed25519 AAAA... you@laptop"

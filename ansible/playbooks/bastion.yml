@@ -1,0 +1,98 @@
+---
+# Hardens an Ubuntu 24.04 jump host and installs the CLI tools used to operate the platform.
+#   ansible-galaxy collection install -r requirements.yml
+#   ansible-playbook playbooks/bastion.yml --check --diff     # dry run first
+#   ansible-playbook playbooks/bastion.yml
+- name: Harden and prepare bastion host
+  hosts: bastion
+  become: true
+  vars:
+    ssh_allowed_users: ["{{ ansible_user }}"]   # never lock yourself out
+    base_packages: [ufw, fail2ban, unattended-upgrades, auditd, chrony, curl, jq, git]
+    sysctl_settings:
+      net.ipv4.conf.all.rp_filter: "1"
+      net.ipv4.conf.all.accept_redirects: "0"
+      net.ipv4.conf.all.send_redirects: "0"
+      net.ipv4.tcp_syncookies: "1"
+      kernel.kptr_restrict: "2"
+
+  tasks:
+    - name: Install base packages
+      ansible.builtin.apt:
+        name: "{{ base_packages }}"
+        state: present
+        update_cache: true
+        cache_valid_time: 3600
+
+    - name: Enable automatic security updates
+      ansible.builtin.copy:
+        dest: /etc/apt/apt.conf.d/20auto-upgrades
+        mode: "0644"
+        content: |
+          APT::Periodic::Update-Package-Lists "1";
+          APT::Periodic::Unattended-Upgrade "1";
+
+    - name: SSH hardening drop-in
+      ansible.builtin.template:
+        src: sshd_hardening.conf.j2
+        dest: /etc/ssh/sshd_config.d/99-hardening.conf
+        mode: "0644"
+      notify: Restart ssh
+
+    - name: Validate the complete sshd configuration before any restart
+      ansible.builtin.command: /usr/sbin/sshd -t
+      changed_when: false
+
+    - name: Firewall - default deny incoming
+      community.general.ufw:
+        default: deny
+        direction: incoming
+
+    - name: Firewall - allow SSH with rate limiting
+      community.general.ufw:
+        rule: limit
+        port: "22"
+        proto: tcp
+
+    - name: Firewall - enable
+      community.general.ufw:
+        state: enabled
+
+    - name: fail2ban jail for sshd
+      ansible.builtin.template:
+        src: fail2ban_jail.local.j2
+        dest: /etc/fail2ban/jail.local
+        mode: "0644"
+      notify: Restart fail2ban
+
+    - name: Kernel network hardening
+      ansible.posix.sysctl:
+        name: "{{ item.key }}"
+        value: "{{ item.value }}"
+        sysctl_file: /etc/sysctl.d/99-hardening.conf
+        reload: true
+      loop: "{{ sysctl_settings | dict2items }}"
+
+    - name: Ensure auditd, chrony and fail2ban are running
+      ansible.builtin.service:
+        name: "{{ item }}"
+        state: started
+        enabled: true
+      loop: [auditd, chrony, fail2ban]
+
+    - name: Install kubectl and helm (snap)
+      community.general.snap:
+        name: "{{ item }}"
+        classic: true
+      loop: [kubectl, helm]
+
+  handlers:
+    - name: Restart ssh
+      ansible.builtin.service:
+        name: ssh
+        state: restarted
+
+    - name: Restart fail2ban
+      ansible.builtin.service:
+        name: fail2ban
+        state: restarted

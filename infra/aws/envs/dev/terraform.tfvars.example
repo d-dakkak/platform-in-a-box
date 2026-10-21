@@ -1,0 +1,2 @@
+github_repository = "OWNER/platform-in-a-box"
+# enable_eks = true   # costs money: apply for a few hours, then terraform destroy

@@ -1,0 +1,15 @@
+# kind / minikube: images loaded locally, no Operator CRDs, no ingress.
+image:
+  registry: ""
+  tag: dev
+  pullPolicy: Never
+services:
+  orders-api:
+    replicas: 1
+    autoscaling: {enabled: false}
+ingress:
+  enabled: false
+networkPolicy:
+  enabled: false
+monitoring:
+  enabled: false

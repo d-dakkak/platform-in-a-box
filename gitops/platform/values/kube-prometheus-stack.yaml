@@ -1,0 +1,46 @@
+fullnameOverride: kps
+kubeEtcd: {enabled: false}               # not reachable on managed control planes
+kubeScheduler: {enabled: false}
+kubeControllerManager: {enabled: false}
+kubeProxy: {enabled: false}
+alertmanager:
+  alertmanagerSpec:
+    resources:
+      requests: {cpu: 25m, memory: 64Mi}
+      limits: {cpu: 100m, memory: 128Mi}
+  config:
+    route:
+      receiver: "null"
+      group_by: [alertname, namespace]
+    receivers:
+      - name: "null"                     # replace with Slack / Teams / e-mail receivers
+prometheus:
+  prometheusSpec:
+    retention: 3d
+    serviceMonitorSelectorNilUsesHelmValues: false
+    podMonitorSelectorNilUsesHelmValues: false
+    ruleSelectorNilUsesHelmValues: false
+    resources:
+      requests: {cpu: 200m, memory: 600Mi}
+      limits: {cpu: 1, memory: 1500Mi}
+grafana:
+  # Only reachable via `kubectl port-forward`. Admin credentials come from the Secret `grafana-admin`,
+  # which scripts/install-argocd.sh creates with a random password (no default credentials in Git).
+  admin:
+    existingSecret: grafana-admin
+    userKey: admin-user
+    passwordKey: admin-password
+  sidecar:
+    dashboards:
+      enabled: true
+      label: grafana_dashboard
+      labelValue: "1"
+      searchNamespace: ALL
+  additionalDataSources:
+    - name: Loki
+      type: loki
+      access: proxy
+      url: http://loki.monitoring.svc.cluster.local:3100
+  resources:
+    requests: {cpu: 50m, memory: 128Mi}
+    limits: {cpu: 300m, memory: 256Mi}

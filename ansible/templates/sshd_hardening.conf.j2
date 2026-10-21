@@ -1,0 +1,13 @@
+# Managed by Ansible. Drop-in for /etc/ssh/sshd_config.d/
+PermitRootLogin no
+PasswordAuthentication no
+KbdInteractiveAuthentication no
+PubkeyAuthentication yes
+X11Forwarding no
+AllowAgentForwarding no
+MaxAuthTries 3
+LoginGraceTime 30
+ClientAliveInterval 300
+ClientAliveCountMax 2
+LogLevel VERBOSE
+AllowUsers {{ ssh_allowed_users | join(' ') }}

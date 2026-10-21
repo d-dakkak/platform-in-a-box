@@ -1,0 +1,80 @@
+image:
+  registry: ""            # e.g. myacr.azurecr.io
+  tag: "dev"              # CI writes the commit SHA into values-azure.yaml
+  pullPolicy: IfNotPresent
+
+services:
+  orders-api:
+    repository: shop/orders-api
+    replicas: 2
+    port: 8080
+    expose: true                      # creates a Service (HTTP entrypoint)
+    probes: {liveness: /healthz, readiness: /readyz}
+    secretKeys: [DATABASE_URL, AMQP_URL]
+    autoscaling: {enabled: true, minReplicas: 2, maxReplicas: 5, cpuUtilization: 70}
+    resources:
+      requests: {cpu: 100m, memory: 128Mi}
+      limits: {cpu: 500m, memory: 256Mi}
+  inventory-worker:
+    repository: shop/inventory-worker
+    replicas: 1
+    port: 8000                        # Prometheus metrics only -> TCP probes
+    secretKeys: [DATABASE_URL, AMQP_URL]
+    resources:
+      requests: {cpu: 50m, memory: 96Mi}
+      limits: {cpu: 250m, memory: 192Mi}
+  notifier:
+    repository: shop/notifier
+    replicas: 1
+    port: 8000
+    secretKeys: [AMQP_URL]
+    resources:
+      requests: {cpu: 25m, memory: 64Mi}
+      limits: {cpu: 200m, memory: 128Mi}
+
+ingress:
+  enabled: false
+  className: traefik
+  host: shop.example.com
+  tls:
+    enabled: false
+    clusterIssuer: letsencrypt-staging
+
+# Dev-grade data layer inside the cluster. Production: managed PostgreSQL / Service Bus (docs/adr/0006).
+postgres:
+  enabled: true
+  image: postgres:16
+  storage: 1Gi
+  storageClassName: ""
+  resources:
+    requests: {cpu: 100m, memory: 192Mi}
+    limits: {cpu: 500m, memory: 512Mi}
+rabbitmq:
+  enabled: true
+  image: rabbitmq:3.13-management
+  storage: 1Gi
+  storageClassName: ""
+  resources:
+    requests: {cpu: 100m, memory: 256Mi}
+    limits: {cpu: 500m, memory: 512Mi}
+
+# Secrets: either synced from Azure Key Vault (External Secrets) or created from values (dev only).
+externalSecrets:
+  enabled: false
+  storeName: azure-keyvault
+  postgresKey: postgres-password
+  rabbitmqKey: rabbitmq-password
+secrets:
+  create: true
+  postgresPassword: dev-only-change-me
+  rabbitmqPassword: dev-only-change-me
+
+networkPolicy:
+  enabled: true
+  egress: true                        # default-deny egress, allow DNS + postgres/rabbitmq only
+  ingressControllerNamespace: traefik
+  monitoringNamespace: monitoring
+
+monitoring:
+  enabled: true                       # needs the Prometheus Operator CRDs (kube-prometheus-stack)
+  runbookBaseUrl: https://github.com/OWNER/platform-in-a-box/blob/main/docs/runbooks
