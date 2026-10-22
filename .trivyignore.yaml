@@ -1,0 +1,8 @@
+misconfigurations:
+  - id: KSV-0014
+    paths:
+      - charts/shop/templates/data.yaml
+    statement: >-
+      Dev-only data stores (Postgres, RabbitMQ) run in-cluster, see ADR 0006.
+      Both images write to their root filesystem at startup. A read-only root
+      needs extra emptyDir mounts and testing, tracked as a follow-up.
