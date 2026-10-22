@@ -58,7 +58,7 @@ kubectl -n argocd patch app shop --type merge -p '{"spec":{"syncPolicy":{"automa
 Dann das Post-Mortem schreiben (`docs/postmortem-template.md`), und zwar mit **deinen** Zeiten und Beobachtungen.
 
 ## 6. Abbauen (nicht vergessen!)
-- [ ] Alles Wichtige gesichert: Screenshots, Video, Log, Post-Mortem
+- [ ] Alles Wichtige gesichert: Screenshots, Log, Post-Mortem
 - [ ] `cd infra/azure/envs/dev && terraform destroy`
 - [ ] State-Storage und App-Registrierung entfernen, wenn du fertig bist (Resource Group aus `bootstrap-tfstate.sh` im Portal löschen)
 - [ ] Prüfen: `az group list -o table` zeigt keine `rg-pib-*` mehr
