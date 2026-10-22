@@ -24,7 +24,7 @@ The application is intentionally tiny. The platform around it is the point.
 | Monitoring and logging | kube-prometheus-stack, alert rules, Grafana dashboard, Loki + Alloy, structured JSON logs | `charts/shop/templates/monitoring.yaml`, `gitops/platform/values/` |
 | Incident management | Severity model, runbooks, post-mortem template, failure-injection game day | `docs/`, `scripts/gameday.sh` |
 | Linux and scripting | Bash scripts, Ansible hardening (SSH, ufw, fail2ban, auditd, sysctl), Python CLI `pctl` | `scripts/`, `ansible/`, `tools/pctl/` |
-| Decisions | Six short ADRs | `docs/adr/` |
+| Decisions | Seven short ADRs | `docs/adr/` |
 
 Architecture diagram and delivery flow: [`docs/architecture.md`](docs/architecture.md).
 
@@ -104,13 +104,13 @@ Schritt-für-Schritt-Anleitung für den Azure-Durchlauf: [`docs/azure-runbook.md
 
 ## Status: what was verified, and what was not
 
-Checked while building this repository: Python sources compile; the unit tests that need no third-party packages pass (inventory logic, notification rendering, `pctl`); all YAML and JSON files parse; shell scripts pass `bash -n`; Helm template blocks are balanced.
+Verified by CI on every push to `main` (GitHub Actions, `.github/workflows/ci.yml`): unit tests of all three services (pytest), an end-to-end smoke test with Docker Compose, Helm chart validation, `terraform validate` for Azure and AWS, Ansible checks, Docker image builds, and Trivy scans (repository misconfiguration and secrets, container images).
 
-**Not run yet** (no network, no cloud account, no tools available when it was generated): `pytest` for `orders-api` (needs FastAPI), `helm lint/template`, `terraform validate/plan`, `ansible-playbook`, Docker builds and every cloud deployment. Expect to fix small things on the first run: provider argument names, chart value keys and Helm chart versions change over time. CI runs these checks on the first pull request, so start with `make test helm tf-validate` locally and fix what they report.
+Not verified yet: any cloud deployment (Terraform apply on Azure or AWS, Argo CD sync, Grafana and Loki in a live cluster, a Game Day on a live cluster). Registry push and the GitOps tag bump in CI only run once the Azure GitHub variables are set. Expect to fix small things on the first cloud run, for example provider argument names and Helm chart versions.
 
-Helm chart versions in `gitops/apps/*.yaml` are set to `"*"`. After the first successful sync, pin each one to the exact version that was installed.
+Helm chart versions in `gitops/apps/*.yaml` are set to `"*"`. After the first successful sync, pin each one to the exact installed version.
 
-A static review (what passed, what was fixed, what is still open) is in [`docs/review-findings.md`](docs/review-findings.md).
+One documented exception: Trivy KSV-0014 (read-only root filesystem) is ignored for the in-cluster Postgres and RabbitMQ of the dev setup, see `.trivyignore.yaml`.
 
 ## Known gaps
 See "Known simplifications" in [`docs/architecture.md`](docs/architecture.md): polling relay instead of a full outbox, in-cluster data stores for dev, no image signing, no backups, no private endpoints.
