@@ -58,7 +58,6 @@ kubectl -n argocd patch app shop --type merge -p '{"spec":{"syncPolicy":{"automa
 Dann das Post-Mortem schreiben (`docs/postmortem-template.md`), und zwar mit **deinen** Zeiten und Beobachtungen.
 
 ## 6. Demo aufnehmen
-Skript: `docs/demo-video-script.md`. Aufnahme am Mac: QuickTime Player > Ablage > Neue Bildschirmaufnahme, nur wenn der Cluster noch läuft.
 
 ## 7. Abbauen (nicht vergessen!)
 - [ ] Alles Wichtige gesichert: Screenshots, Video, Log, Post-Mortem
